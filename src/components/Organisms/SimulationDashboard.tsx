@@ -36,9 +36,7 @@ export const SimulationDashboard: React.FC = () => {
 
   const { atmosphere, setAtmosphere } = useAtmosphere();
 
-  // Состояния
   const [measure, setMeasure] = useState<Measure>(() => {
-    // Попытка загрузить сохранённое состояние
     const saved = localStorage.getItem('ambient_state');
     if (saved) {
       try {
@@ -74,28 +72,41 @@ export const SimulationDashboard: React.FC = () => {
   const { playResonance } = useAtmosphereSound();
   const prevFunctionalRef = useRef(functionalValue);
 
-  // Подсчёт функционала
-  useEffect(() => {
-    const val = totalFunctional(measure, alpha, tau, beta, currentTopology);
-    setFunctionalValue(val);
-  }, [measure, alpha, tau, beta, currentTopology]);
+  // Траектория геодезического пути: массив точек {x, z, y, label}
+  const [geodesicPath, setGeodesicPath] = useState<Array<{x:number, z:number, y:number, label:string}>>([]);
 
-  // Резонанс при росте функционала
-  useEffect(() => {
-    if (functionalValue > prevFunctionalRef.current && functionalValue - prevFunctionalRef.current > 0.01) {
-      const intensity = Math.min(1, (functionalValue - prevFunctionalRef.current) * 2);
-      playResonance(intensity);
+  // Функция получения текущей лучшей истории и её координат
+  const getBestHistoryCoords = () => {
+    let bestHistory: History | null = null;
+    let bestWeight = -1;
+    for (const [histJson, w] of measure.weights.entries()) {
+      if (w > bestWeight) {
+        bestWeight = w;
+        bestHistory = JSON.parse(histJson);
+      }
     }
-    prevFunctionalRef.current = functionalValue;
-  }, [functionalValue, playResonance]);
+    if (!bestHistory) return null;
+    const k = kappa(bestHistory);
+    const patterns = activePatterns(bestHistory);
+    const avgPhi = patterns.length > 0 ? patterns.reduce((sum, p) => sum + integratedInformation(p), 0) / patterns.length : 0;
+    const totalWeight = Array.from(measure.weights.values()).reduce((a,b)=>a+b,0);
+    const normWeight = totalWeight > 0 ? bestWeight / totalWeight : 0;
+    return { x: k - 0.5, z: avgPhi - 0.5, y: Math.pow(normWeight, 0.5) * 1.5, label: bestHistory.join('→') };
+  };
 
-  // Сохранение состояния при изменении ключевых параметров
-  useEffect(() => {
-    const state = saveState(measure, alpha, tau, beta, atmosphere);
-    localStorage.setItem('ambient_state', JSON.stringify(state));
-  }, [measure, alpha, tau, beta, atmosphere]);
+  // Добавляем текущую позицию в траекторию при каждом шаге
+  const addCurrentToGeodesic = () => {
+    const coords = getBestHistoryCoords();
+    if (coords) {
+      setGeodesicPath(prev => {
+        // Не добавляем дубликаты подряд
+        if (prev.length > 0 && prev[prev.length-1].x === coords.x && prev[prev.length-1].z === coords.z) return prev;
+        return [...prev, coords];
+      });
+    }
+  };
 
-  // Функция шага градиента
+  // Шаг градиента с записью траектории
   const performStep = () => {
     setMeasure(prevMeasure => {
       const newMeasure = gradientStep(prevMeasure, alpha, tau, beta, currentTopology, 0.2);
@@ -111,8 +122,27 @@ export const SimulationDashboard: React.FC = () => {
         const newTop = sumTop.map(s => s / totalWeight);
         setCurrentTopology(newTop);
       }
+      // После обновления меры добавим траекторию (useEffect не сработает синхронно)
+      setTimeout(() => addCurrentToGeodesic(), 0);
       return newMeasure;
     });
+  };
+
+  // При первом рендере и при изменении меры (например, сброс) обновляем траекторию
+  useEffect(() => {
+    addCurrentToGeodesic();
+  }, [measure]);
+
+  const handleReset = () => {
+    if (confirm('Сбросить всё к начальному состоянию?')) {
+      setMeasure(createInitialMeasure(demoHistories));
+      setAlpha(0.5);
+      setTau(0.2);
+      setBeta(0.3);
+      setAtmosphere('classic');
+      setCurrentTopology(preferenceTopology(demoHistories[0]));
+      setGeodesicPath([]); // очищаем траекторию
+    }
   };
 
   // Авто-шаг
@@ -135,18 +165,27 @@ export const SimulationDashboard: React.FC = () => {
     playResonance(0.2);
   };
 
-  const handleReset = () => {
-    if (confirm('Сбросить всё к начальному состоянию?')) {
-      setMeasure(createInitialMeasure(demoHistories));
-      setAlpha(0.5);
-      setTau(0.2);
-      setBeta(0.3);
-      setAtmosphere('classic');
-      setCurrentTopology(preferenceTopology(demoHistories[0]));
-    }
-  };
+  // Сохранение состояния
+  useEffect(() => {
+    const state = saveState(measure, alpha, tau, beta, atmosphere);
+    localStorage.setItem('ambient_state', JSON.stringify(state));
+  }, [measure, alpha, tau, beta, atmosphere]);
 
-  // Получение лучшей истории
+  // Подсчёт функционала
+  useEffect(() => {
+    const val = totalFunctional(measure, alpha, tau, beta, currentTopology);
+    setFunctionalValue(val);
+  }, [measure, alpha, tau, beta, currentTopology]);
+
+  useEffect(() => {
+    if (functionalValue > prevFunctionalRef.current && functionalValue - prevFunctionalRef.current > 0.01) {
+      const intensity = Math.min(1, (functionalValue - prevFunctionalRef.current) * 2);
+      playResonance(intensity);
+    }
+    prevFunctionalRef.current = functionalValue;
+  }, [functionalValue, playResonance]);
+
+  // Данные для отображения
   let bestHistory: History | null = null;
   let bestWeight = -1;
   for (const [histJson, w] of measure.weights.entries()) {
@@ -197,7 +236,7 @@ export const SimulationDashboard: React.FC = () => {
         </div>
         <div className="col-span-2">
           <p className="text-xs text-amber-700">Текущий функционал: <strong>{functionalValue.toFixed(4)}</strong></p>
-          <p className="text-xs text-amber-500 mt-1">💾 Состояние автоматически сохраняется в браузере</p>
+          <p className="text-xs text-amber-500">📈 Геодезический путь: {geodesicPath.length} точек</p>
         </div>
       </div>
 
@@ -211,9 +250,13 @@ export const SimulationDashboard: React.FC = () => {
       </div>
 
       <div className="mt-4">
-        <h4 className="font-semibold text-amber-900 mb-1">🏔️ Ландшафт меры μ (3D)</h4>
-        <MeasureLandscape measure={measure} histories={Array.from(measure.weights.keys()).map(k => JSON.parse(k) as History)} />
-        <p className="text-xs text-amber-600 mt-1">Ось X: κ(H), ось Z: ⟨Φ⟩, высота: вес истории</p>
+        <h4 className="font-semibold text-amber-900 mb-1">🏔️ Ландшафт меры μ (3D) с геодезическим путём</h4>
+        <MeasureLandscape
+          measure={measure}
+          histories={Array.from(measure.weights.keys()).map(k => JSON.parse(k) as History)}
+          geodesicPath={geodesicPath}
+        />
+        <p className="text-xs text-amber-600 mt-1">Ось X: κ(H), ось Z: ⟨Φ⟩, высота: вес истории. Линия — эволюция лучшей истории.</p>
       </div>
 
       <div className="mt-4">
