@@ -201,3 +201,34 @@ export function addHistoryToMeasure(measure: Measure, history: History, initialW
   }
   return { weights: newWeights };
 }
+
+// Состояние для сохранения
+export interface SavedState {
+  measureWeights: [string, number][];
+  alpha: number;
+  tau: number;
+  beta: number;
+  atmosphere: string;
+  version: number;
+}
+
+export function saveState(measure: Measure, alpha: number, tau: number, beta: number, atmosphere: string): SavedState {
+  return {
+    measureWeights: Array.from(measure.weights.entries()),
+    alpha,
+    tau,
+    beta,
+    atmosphere,
+    version: 1,
+  };
+}
+
+export function loadState(saved: SavedState): { measure: Measure; alpha: number; tau: number; beta: number; atmosphere: string } {
+  return {
+    measure: { weights: new Map(saved.measureWeights) },
+    alpha: saved.alpha,
+    tau: saved.tau,
+    beta: saved.beta,
+    atmosphere: saved.atmosphere,
+  };
+}

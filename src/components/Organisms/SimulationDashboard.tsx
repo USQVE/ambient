@@ -12,6 +12,9 @@ import {
   createInitialMeasure,
   randomHistory,
   addHistoryToMeasure,
+  saveState,
+  loadState,
+  SavedState,
   V
 } from '../../models/Simulation';
 import { AgentGraph } from './AgentGraph';
@@ -19,6 +22,9 @@ import { Pattern } from '../../models/Simulation';
 import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
 import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
 import { MeasureLandscape } from './MeasureLandscape';
+import { useAtmosphere } from '../../hooks/useAtmosphere';
+
+type Atmosphere = 'classic' | 'horror' | 'meditative' | 'pop-science';
 
 export const SimulationDashboard: React.FC = () => {
   const demoHistories: History[] = [
@@ -27,10 +33,40 @@ export const SimulationDashboard: React.FC = () => {
     ['α', 'α', 'β', 'β', 'γ', 'γ'],
     ['δ', 'ε', 'ε', 'δ', 'α', 'β'],
   ];
-  const [measure, setMeasure] = useState<Measure>(() => createInitialMeasure(demoHistories));
-  const [alpha, setAlpha] = useState(0.5);
-  const [tau, setTau] = useState(0.2);
-  const [beta, setBeta] = useState(0.3);
+
+  const { atmosphere, setAtmosphere } = useAtmosphere();
+
+  // Состояния
+  const [measure, setMeasure] = useState<Measure>(() => {
+    // Попытка загрузить сохранённое состояние
+    const saved = localStorage.getItem('ambient_state');
+    if (saved) {
+      try {
+        const parsed: SavedState = JSON.parse(saved);
+        const loaded = loadState(parsed);
+        setAtmosphere(loaded.atmosphere as Atmosphere);
+        return loaded.measure;
+      } catch (e) { console.warn(e); }
+    }
+    return createInitialMeasure(demoHistories);
+  });
+
+  const [alpha, setAlpha] = useState<number>(() => {
+    const saved = localStorage.getItem('ambient_state');
+    if (saved) try { return JSON.parse(saved).alpha; } catch { /* ignore */ }
+    return 0.5;
+  });
+  const [tau, setTau] = useState<number>(() => {
+    const saved = localStorage.getItem('ambient_state');
+    if (saved) try { return JSON.parse(saved).tau; } catch { /* ignore */ }
+    return 0.2;
+  });
+  const [beta, setBeta] = useState<number>(() => {
+    const saved = localStorage.getItem('ambient_state');
+    if (saved) try { return JSON.parse(saved).beta; } catch { /* ignore */ }
+    return 0.3;
+  });
+
   const [currentTopology, setCurrentTopology] = useState<number[]>(() => preferenceTopology(demoHistories[0]));
   const [functionalValue, setFunctionalValue] = useState(0);
   const [autoStep, setAutoStep] = useState(false);
@@ -53,11 +89,16 @@ export const SimulationDashboard: React.FC = () => {
     prevFunctionalRef.current = functionalValue;
   }, [functionalValue, playResonance]);
 
+  // Сохранение состояния при изменении ключевых параметров
+  useEffect(() => {
+    const state = saveState(measure, alpha, tau, beta, atmosphere);
+    localStorage.setItem('ambient_state', JSON.stringify(state));
+  }, [measure, alpha, tau, beta, atmosphere]);
+
   // Функция шага градиента
   const performStep = () => {
     setMeasure(prevMeasure => {
       const newMeasure = gradientStep(prevMeasure, alpha, tau, beta, currentTopology, 0.2);
-      // Обновляем топологию
       let totalWeight = 0;
       const sumTop = new Array(V.length).fill(0);
       for (const [histJson, w] of newMeasure.weights.entries()) {
@@ -74,7 +115,7 @@ export const SimulationDashboard: React.FC = () => {
     });
   };
 
-  // Авто-шаг: управление интервалом
+  // Авто-шаг
   useEffect(() => {
     if (autoStep) {
       const interval = setInterval(() => {
@@ -88,12 +129,21 @@ export const SimulationDashboard: React.FC = () => {
     }
   }, [autoStep, alpha, tau, beta, currentTopology]);
 
-  // Добавление случайной истории
   const handleAddRandomHistory = () => {
     const newHistory = randomHistory();
     setMeasure(prev => addHistoryToMeasure(prev, newHistory, 0.2));
-    // Небольшой звуковой щелчок через Web Audio (опционально)
     playResonance(0.2);
+  };
+
+  const handleReset = () => {
+    if (confirm('Сбросить всё к начальному состоянию?')) {
+      setMeasure(createInitialMeasure(demoHistories));
+      setAlpha(0.5);
+      setTau(0.2);
+      setBeta(0.3);
+      setAtmosphere('classic');
+      setCurrentTopology(preferenceTopology(demoHistories[0]));
+    }
   };
 
   // Получение лучшей истории
@@ -130,7 +180,7 @@ export const SimulationDashboard: React.FC = () => {
           <input type="range" min="0" max="2" step="0.05" value={beta} onChange={e=>setBeta(+e.target.value)} className="w-full" />
           <span className="text-amber-900">{beta.toFixed(2)}</span>
         </div>
-        <div className="col-span-2 flex gap-2">
+        <div className="col-span-2 flex flex-wrap gap-2">
           <button onClick={performStep} className="bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded shadow text-sm">
             ▶️ Шаг
           </button>
@@ -141,9 +191,13 @@ export const SimulationDashboard: React.FC = () => {
             <input type="checkbox" checked={autoStep} onChange={e => setAutoStep(e.target.checked)} className="w-4 h-4" />
             🔄 Авто-шаг
           </label>
+          <button onClick={handleReset} className="bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded shadow text-sm ml-auto">
+            🔄 Сброс
+          </button>
         </div>
         <div className="col-span-2">
           <p className="text-xs text-amber-700">Текущий функционал: <strong>{functionalValue.toFixed(4)}</strong></p>
+          <p className="text-xs text-amber-500 mt-1">💾 Состояние автоматически сохраняется в браузере</p>
         </div>
       </div>
 
