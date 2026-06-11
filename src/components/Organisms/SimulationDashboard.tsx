@@ -23,6 +23,7 @@ import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
 import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
 import { MeasureLandscape } from './MeasureLandscape';
 import { AICommentator } from '../Atoms/AICommentator';
+import { WanderingArchetypes } from './WanderingArchetypes';
 import { useAtmosphere } from '../../hooks/useAtmosphere';
 
 type Atmosphere = 'classic' | 'horror' | 'meditative' | 'pop-science';
@@ -129,6 +130,12 @@ export const SimulationDashboard: React.FC = () => {
       setTimeout(() => addCurrentToGeodesic(), 0);
       return newMeasure;
     });
+    // Звуки архетипов: тигр рычит при высоком Φ*, клоун гудит при низком
+    if (patterns.some(p => integratedInformation(p) > 0.6 && Math.random() < 0.2)) {
+      playResonance(0.8);
+    } else if (patterns.some(p => integratedInformation(p) < 0.4 && Math.random() < 0.3)) {
+      playResonance(0.3);
+    }
   };
 
   useEffect(() => {
@@ -255,6 +262,11 @@ export const SimulationDashboard: React.FC = () => {
           histories={Array.from(measure.weights.keys()).map(k => JSON.parse(k) as History)}
           geodesicPath={geodesicPath}
         />
+      </div>
+
+      <div className="mt-4">
+        <h4 className="font-semibold text-amber-900 mb-1">🎪 Бродячие архетипы</h4>
+        <WanderingArchetypes patterns={patterns} />
       </div>
 
       <div className="mt-4">
