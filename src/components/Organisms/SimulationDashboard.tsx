@@ -15,6 +15,7 @@ import {
 } from '../../models/Simulation';
 import { AgentGraph } from './AgentGraph';
 import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
+import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
 
 export const SimulationDashboard: React.FC = () => {
   const demoHistories: History[] = [
@@ -102,6 +103,11 @@ export const SimulationDashboard: React.FC = () => {
           </button>
           <p className="mt-2 text-xs text-amber-700">Текущий функционал: <strong>{functionalValue.toFixed(4)}</strong></p>
         </div>
+      </div>
+
+      {/* Тепловая карта топологии */}
+      <div className="mt-4">
+        <TopologyHeatmap topology={currentTopology} labels={V} />
       </div>
 
       <div className="mt-4">
