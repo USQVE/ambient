@@ -28,7 +28,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
     "@types/pako": "^2.0.4",
+    "@types/three": "^0.184.1",
     "better-react-mathjax": "^3.0.1",
     "chart.js": "^4.5.1",
     "pako": "^2.1.0",
@@ -36,6 +39,7 @@
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.7",
     "reactflow": "^11.11.4",
+    "three": "^0.184.0",
     "use-sound": "^5.0.0"
   }
 }

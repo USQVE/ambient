@@ -16,6 +16,7 @@ import {
 import { AgentGraph } from './AgentGraph';
 import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
 import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
+import { MeasureLandscape } from './MeasureLandscape';
 
 export const SimulationDashboard: React.FC = () => {
   const demoHistories: History[] = [
@@ -113,6 +114,12 @@ export const SimulationDashboard: React.FC = () => {
       <div className="mt-4">
         <h4 className="font-semibold text-amber-900 mb-1">🌐 Граф субагентов и паттернов</h4>
         <AgentGraph patterns={patterns} onPatternClick={handlePatternClick} />
+      </div>
+
+      <div className="mt-4">
+        <h4 className="font-semibold text-amber-900 mb-1">🏔️ Ландшафт меры μ (3D)</h4>
+        <MeasureLandscape measure={measure} histories={demoHistories} />
+        <p className="text-xs text-amber-600 mt-1">Ось X: κ(H), ось Z: ⟨Φ⟩, высота: вес истории</p>
       </div>
 
       <div className="mt-4">
