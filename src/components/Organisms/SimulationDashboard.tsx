@@ -23,6 +23,7 @@ import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
 import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
 import { MeasureLandscape } from './MeasureLandscape';
 import { useAtmosphere } from '../../hooks/useAtmosphere';
+import { AICommentator } from '../Atoms/AICommentator';
 
 type Atmosphere = 'classic' | 'horror' | 'meditative' | 'pop-science';
 
@@ -267,6 +268,15 @@ export const SimulationDashboard: React.FC = () => {
             <div className="text-xs text-amber-600 mt-1">
               κ = {kappa(bestHistory).toFixed(3)}, F = {valueFunction(bestHistory).toFixed(3)}
             </div>
+            <AICommentator
+              prompt={`Текущая лучшая история: ${bestHistory.join(' → ')}. 
+                Кappa (сложность): ${kappa(bestHistory).toFixed(3)}. 
+                Значение F: ${valueFunction(bestHistory).toFixed(3)}.
+                Активные паттерны: ${patterns.map(p => p.agents.join(',')).join('; ')}. 
+                Каков философский смысл этого выбора в контексте теории «Амбиент»?`}
+              autoGenerate={true}
+              className="mt-4"
+            />
           </div>
         )}
         <h4 className="font-semibold text-amber-900 mt-3">Активные паттерны (Φ*)</h4>
