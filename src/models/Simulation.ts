@@ -178,3 +178,26 @@ export function createInitialMeasure(histories: History[]): Measure {
   }
   return { weights };
 }
+
+// Генерация случайной истории (длина от 3 до 8 событий)
+export function randomHistory(): History {
+  const length = 3 + Math.floor(Math.random() * 6);
+  const hist: History = [];
+  for (let i = 0; i < length; i++) {
+    const randomAgent = V[Math.floor(Math.random() * V.length)];
+    hist.push(randomAgent);
+  }
+  return hist;
+}
+
+// Добавить новую историю в меру с начальным весом 0.1
+export function addHistoryToMeasure(measure: Measure, history: History, initialWeight = 0.1): Measure {
+  const newWeights = new Map(measure.weights);
+  const key = JSON.stringify(history);
+  if (!newWeights.has(key)) {
+    newWeights.set(key, initialWeight);
+  } else {
+    newWeights.set(key, newWeights.get(key)! + initialWeight);
+  }
+  return { weights: newWeights };
+}
