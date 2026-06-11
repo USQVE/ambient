@@ -2,6 +2,7 @@ import { AtmosphereProvider } from './hooks/useAtmosphere';
 import { AtmosphereSwitcher } from './components/UI/AtmosphereSwitcher';
 import { PaperTexture } from './components/Atoms/PaperTexture';
 import { EditableFormula } from './components/Molecules/EditableFormula';
+import { SimulationDashboard } from './components/Organisms/SimulationDashboard';
 
 function App() {
   return (
@@ -12,8 +13,8 @@ function App() {
             <h1 className="text-xl font-serif tracking-wide text-amber-50">🖋️ AMBIENT · IDE</h1>
             <AtmosphereSwitcher />
           </header>
-          <main className="flex-1 p-6">
-            <div className="max-w-2xl mx-auto bg-amber-50/40 backdrop-blur-sm rounded-xl p-6 shadow-2xl border border-amber-300">
+          <main className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-amber-50/40 backdrop-blur-sm rounded-xl p-6 shadow-2xl border border-amber-300">
               <h2 className="text-2xl font-serif text-amber-900 border-l-4 border-amber-700 pl-3 mb-4">
                 Лаборатория формул
               </h2>
@@ -23,8 +24,11 @@ function App() {
                 <EditableFormula initialFormula="κ(H) = dim_H H" />
               </div>
             </div>
+            <div className="bg-amber-50/40 backdrop-blur-sm rounded-xl p-6 shadow-2xl border border-amber-300">
+              <SimulationDashboard />
+            </div>
           </main>
-          <footer className="text-center text-amber-800/50 text-sm p-2">© 2025 · ambient ide</footer>
+          <footer className="text-center text-amber-800/50 text-sm p-2">© 2025 · ambient ide — теория «Амбиент» в действии</footer>
         </div>
       </PaperTexture>
     </AtmosphereProvider>

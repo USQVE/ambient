@@ -1,0 +1,109 @@
+import React, { useState, useEffect } from 'react';
+import {
+  History,
+  Measure,
+  valueFunction,
+  kappa,
+  integratedInformation,
+  activePatterns,
+  preferenceTopology,
+  totalFunctional,
+  gradientStep,
+  createInitialMeasure,
+  V
+} from '../../models/Simulation';
+
+export const SimulationDashboard: React.FC = () => {
+  // Демо-истории
+  const demoHistories: History[] = [
+    ['α', 'β', 'α', 'γ'],
+    ['β', 'γ', 'δ', 'ε', 'α'],
+    ['α', 'α', 'β', 'β', 'γ', 'γ'],
+    ['δ', 'ε', 'ε', 'δ', 'α', 'β'],
+  ];
+  const [measure, setMeasure] = useState<Measure>(() => createInitialMeasure(demoHistories));
+  const [alpha, setAlpha] = useState(0.5);
+  const [tau, setTau] = useState(0.2);
+  const [beta, setBeta] = useState(0.3);
+  const [currentTopology, setCurrentTopology] = useState<number[]>(() => preferenceTopology(demoHistories[0]));
+  const [functionalValue, setFunctionalValue] = useState(0);
+
+  useEffect(() => {
+    const val = totalFunctional(measure, alpha, tau, beta, currentTopology);
+    setFunctionalValue(val);
+  }, [measure, alpha, tau, beta, currentTopology]);
+
+  const handleStep = () => {
+    const newMeasure = gradientStep(measure, alpha, tau, beta, currentTopology, 0.2);
+    setMeasure(newMeasure);
+    // обновляем топологию как среднее по взвешенным историям
+    let totalWeight = 0;
+    const sumTop = new Array(V.length).fill(0);
+    for (const [histJson, w] of newMeasure.weights.entries()) {
+      const hist = JSON.parse(histJson) as History;
+      const top = preferenceTopology(hist);
+      for (let i=0; i<V.length; i++) sumTop[i] += w * top[i];
+      totalWeight += w;
+    }
+    if (totalWeight > 0) {
+      const newTop = sumTop.map(s => s / totalWeight);
+      setCurrentTopology(newTop);
+    }
+  };
+
+  // Вычисляем статистику по лучшей истории (max weight)
+  let bestHistory: History | null = null;
+  let bestWeight = -1;
+  for (const [histJson, w] of measure.weights.entries()) {
+    if (w > bestWeight) {
+      bestWeight = w;
+      bestHistory = JSON.parse(histJson);
+    }
+  }
+
+  return (
+    <div className="bg-amber-50/80 rounded-lg p-4 border border-amber-400 shadow-inner font-serif">
+      <h3 className="text-xl font-bold text-amber-900 border-b border-amber-600 mb-3">⚙️ Вариационный движок «Амбиент»</h3>
+      <div className="grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <label className="block text-amber-800">α (предпочтения)</label>
+          <input type="range" min="0" max="2" step="0.05" value={alpha} onChange={e=>setAlpha(+e.target.value)} className="w-full" />
+          <span className="text-amber-900">{alpha.toFixed(2)}</span>
+        </div>
+        <div>
+          <label className="block text-amber-800">τ (KL‑штраф)</label>
+          <input type="range" min="0" max="2" step="0.05" value={tau} onChange={e=>setTau(+e.target.value)} className="w-full" />
+          <span className="text-amber-900">{tau.toFixed(2)}</span>
+        </div>
+        <div>
+          <label className="block text-amber-800">β (геодезия)</label>
+          <input type="range" min="0" max="2" step="0.05" value={beta} onChange={e=>setBeta(+e.target.value)} className="w-full" />
+          <span className="text-amber-900">{beta.toFixed(2)}</span>
+        </div>
+        <div className="col-span-2">
+          <button onClick={handleStep} className="bg-amber-700 hover:bg-amber-800 text-white px-4 py-1 rounded shadow">
+            ▶️ Шаг градиента (эволюция меры)
+          </button>
+          <p className="mt-2 text-xs text-amber-700">Текущий функционал: <strong>{functionalValue.toFixed(4)}</strong></p>
+        </div>
+      </div>
+      <div className="mt-4">
+        <h4 className="font-semibold text-amber-900">Лучшая история (max вес)</h4>
+        {bestHistory && (
+          <div className="bg-amber-100 p-2 rounded mt-1 font-mono text-sm">
+            {bestHistory.join(' → ')}
+            <div className="text-xs text-amber-600 mt-1">
+              κ = {kappa(bestHistory).toFixed(3)}, F = {valueFunction(bestHistory).toFixed(3)}
+            </div>
+          </div>
+        )}
+        <h4 className="font-semibold text-amber-900 mt-3">Активные паттерны (Φ*)</h4>
+        {bestHistory && activePatterns(bestHistory).map(p => (
+          <div key={p.id} className="text-xs text-amber-700">
+            {p.agents.join(',')} → Φ = {integratedInformation(p).toFixed(3)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};

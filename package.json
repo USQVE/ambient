@@ -28,8 +28,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/pako": "^2.0.4",
     "better-react-mathjax": "^3.0.1",
     "chart.js": "^4.5.1",
+    "pako": "^2.1.0",
     "react": "^19.2.7",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.7",
