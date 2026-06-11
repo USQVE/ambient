@@ -1,0 +1,278 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  History,
+  Measure,
+  valueFunction,
+  integratedInformation,
+  activePatterns,
+  preferenceTopology,
+  computeFunctionalComponents,
+  gradientStep,
+  createInitialMeasure,
+  randomHistory,
+  addHistoryToMeasure,
+  saveState,
+  loadState,
+  SavedState,
+  kappaLZ,
+  V as defaultV
+} from '../../models/Simulation';
+import { EditableAgentGraph } from './EditableAgentGraph';
+import { Pattern } from '../../models/Simulation';
+import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
+import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
+import { MeasureLandscape } from './MeasureLandscape';
+import { AICommentator } from '../Atoms/AICommentator';
+import { useAtmosphere } from '../../hooks/useAtmosphere';
+
+type Atmosphere = 'classic' | 'horror' | 'meditative' | 'pop-science';
+
+export const SimulationDashboard: React.FC = () => {
+  const demoHistories: History[] = [
+    ['α', 'β', 'α', 'γ'],
+    ['β', 'γ', 'δ', 'ε', 'α'],
+    ['α', 'α', 'β', 'β', 'γ', 'γ'],
+    ['δ', 'ε', 'ε', 'δ', 'α', 'β'],
+  ];
+
+  const { atmosphere, setAtmosphere } = useAtmosphere();
+  const [customPatterns, setCustomPatterns] = useState<Pattern[]>([]);
+
+  const [measure, setMeasure] = useState<Measure>(() => {
+    const saved = localStorage.getItem('ambient_state');
+    if (saved) {
+      try {
+        const parsed: SavedState = JSON.parse(saved);
+        const loaded = loadState(parsed);
+        setAtmosphere(loaded.atmosphere as Atmosphere);
+        return loaded.measure;
+      } catch (e) { console.warn(e); }
+    }
+    return createInitialMeasure(demoHistories);
+  });
+
+  const [alpha, setAlpha] = useState(() => {
+    const saved = localStorage.getItem('ambient_state');
+    if (saved) try { return JSON.parse(saved).alpha; } catch { /* ignore */ }
+    return 0.5;
+  });
+  const [tau, setTau] = useState(() => {
+    const saved = localStorage.getItem('ambient_state');
+    if (saved) try { return JSON.parse(saved).tau; } catch { /* ignore */ }
+    return 0.2;
+  });
+  const [beta, setBeta] = useState(() => {
+    const saved = localStorage.getItem('ambient_state');
+    if (saved) try { return JSON.parse(saved).beta; } catch { /* ignore */ }
+    return 0.3;
+  });
+
+  const [currentTopology, setCurrentTopology] = useState<number[]>(() => preferenceTopology(demoHistories[0]));
+  const [functionalComponents, setFunctionalComponents] = useState({ expectationF:0, expectationPref:0, klDivergence:0, expectationGeo:0, total:0 });
+  const [autoStep, setAutoStep] = useState(false);
+  const [stepInterval, setStepInterval] = useState<ReturnType<typeof setInterval> | null>(null);
+  const { playResonance } = useAtmosphereSound();
+  const prevTotalRef = useRef(0);
+  const [geodesicPath, setGeodesicPath] = useState<Array<{x:number, z:number, y:number, label:string}>>([]);
+
+  // Обновление компонент функционала
+  useEffect(() => {
+    const comps = computeFunctionalComponents(measure, alpha, tau, beta, currentTopology);
+    setFunctionalComponents(comps);
+  }, [measure, alpha, tau, beta, currentTopology]);
+
+  // Резонанс при росте total
+  useEffect(() => {
+    if (functionalComponents.total > prevTotalRef.current && functionalComponents.total - prevTotalRef.current > 0.01) {
+      const intensity = Math.min(1, (functionalComponents.total - prevTotalRef.current) * 2);
+      playResonance(intensity);
+    }
+    prevTotalRef.current = functionalComponents.total;
+  }, [functionalComponents.total, playResonance]);
+
+  const getBestHistoryCoords = () => {
+    let bestHistory: History | null = null;
+    let bestWeight = -1;
+    for (const [histJson, w] of measure.weights.entries()) {
+      if (w > bestWeight) {
+        bestWeight = w;
+        bestHistory = JSON.parse(histJson);
+      }
+    }
+    if (!bestHistory) return null;
+    const k = kappaLZ(bestHistory);
+    const patternsForHistory = activePatterns(bestHistory);
+    const avgPhi = patternsForHistory.length > 0 ? patternsForHistory.reduce((sum, p) => sum + integratedInformation(p), 0) / patternsForHistory.length : 0;
+    const totalWeight = Array.from(measure.weights.values()).reduce((a,b)=>a+b,0);
+    const normWeight = totalWeight > 0 ? bestWeight / totalWeight : 0;
+    return { x: k - 0.5, z: avgPhi - 0.5, y: Math.pow(normWeight, 0.5) * 1.5, label: bestHistory.join('→') };
+  };
+
+  const addCurrentToGeodesic = () => {
+    const coords = getBestHistoryCoords();
+    if (coords) {
+      setGeodesicPath(prev => {
+        if (prev.length > 0 && prev[prev.length-1].x === coords.x && prev[prev.length-1].z === coords.z) return prev;
+        return [...prev, coords];
+      });
+    }
+  };
+
+  const performStep = () => {
+    setMeasure(prevMeasure => {
+      const newMeasure = gradientStep(prevMeasure, alpha, tau, beta, currentTopology, 0.2);
+      let totalWeight = 0;
+      const sumTop = new Array(defaultV.length).fill(0);
+      for (const [histJson, w] of newMeasure.weights.entries()) {
+        const hist = JSON.parse(histJson) as History;
+        const top = preferenceTopology(hist);
+        for (let i=0; i<defaultV.length; i++) sumTop[i] += w * top[i];
+        totalWeight += w;
+      }
+      if (totalWeight > 0) {
+        const newTop = sumTop.map(s => s / totalWeight);
+        setCurrentTopology(newTop);
+      }
+      setTimeout(() => addCurrentToGeodesic(), 0);
+      return newMeasure;
+    });
+  };
+
+  useEffect(() => {
+    addCurrentToGeodesic();
+  }, [measure]);
+
+  const handleReset = () => {
+    if (confirm('Сбросить всё к начальному состоянию?')) {
+      setMeasure(createInitialMeasure(demoHistories));
+      setAlpha(0.5);
+      setTau(0.2);
+      setBeta(0.3);
+      setAtmosphere('classic');
+      setCurrentTopology(preferenceTopology(demoHistories[0]));
+      setGeodesicPath([]);
+    }
+  };
+
+  useEffect(() => {
+    if (autoStep) {
+      const interval = setInterval(() => { performStep(); }, 500);
+      setStepInterval(interval);
+      return () => clearInterval(interval);
+    } else {
+      if (stepInterval) clearInterval(stepInterval);
+      setStepInterval(null);
+    }
+  }, [autoStep, alpha, tau, beta, currentTopology]);
+
+  const handleAddRandomHistory = () => {
+    const newHistory = randomHistory();
+    setMeasure(prev => addHistoryToMeasure(prev, newHistory, 0.2));
+    playResonance(0.2);
+  };
+
+  useEffect(() => {
+    const state = saveState(measure, alpha, tau, beta, atmosphere);
+    localStorage.setItem('ambient_state', JSON.stringify(state));
+  }, [measure, alpha, tau, beta, atmosphere]);
+
+  let bestHistory: History | null = null;
+  let bestWeight = -1;
+  for (const [histJson, w] of measure.weights.entries()) {
+    if (w > bestWeight) {
+      bestWeight = w;
+      bestHistory = JSON.parse(histJson);
+    }
+  }
+  const patterns = bestHistory ? activePatterns(bestHistory) : [];
+
+  return (
+    <div className="bg-amber-50/80 rounded-lg p-4 border border-amber-400 shadow-inner font-serif">
+      <h3 className="text-xl font-bold text-amber-900 border-b border-amber-600 mb-3">⚙️ Вариационный движок «Амбиент»</h3>
+
+      {/* Панель компонент функционала */}
+      <div className="grid grid-cols-4 gap-2 text-xs bg-amber-100/60 p-2 rounded mb-3">
+        <div><span className="font-bold">E[F]:</span> {functionalComponents.expectationF.toFixed(3)}</div>
+        <div><span className="font-bold">αE[p̄]:</span> {(alpha * functionalComponents.expectationPref).toFixed(3)}</div>
+        <div><span className="font-bold">-τKL:</span> {(-tau * functionalComponents.klDivergence).toFixed(3)}</div>
+        <div><span className="font-bold">βE[dJS]:</span> {(beta * functionalComponents.expectationGeo).toFixed(3)}</div>
+        <div className="col-span-4"><span className="font-bold">∑ = {functionalComponents.total.toFixed(4)}</span></div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <label className="block text-amber-800">α (предпочтения)</label>
+          <input type="range" min="0" max="2" step="0.05" value={alpha} onChange={e=>setAlpha(+e.target.value)} className="w-full" />
+          <span className="text-amber-900">{alpha.toFixed(2)}</span>
+        </div>
+        <div>
+          <label className="block text-amber-800">τ (KL‑штраф)</label>
+          <input type="range" min="0" max="2" step="0.05" value={tau} onChange={e=>setTau(+e.target.value)} className="w-full" />
+          <span className="text-amber-900">{tau.toFixed(2)}</span>
+        </div>
+        <div>
+          <label className="block text-amber-800">β (геодезия)</label>
+          <input type="range" min="0" max="2" step="0.05" value={beta} onChange={e=>setBeta(+e.target.value)} className="w-full" />
+          <span className="text-amber-900">{beta.toFixed(2)}</span>
+        </div>
+        <div className="col-span-2 flex flex-wrap gap-2">
+          <button onClick={performStep} className="bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded shadow text-sm">▶️ Шаг</button>
+          <button onClick={handleAddRandomHistory} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded shadow text-sm">🎲 Случайная история</button>
+          <label className="flex items-center gap-2 text-amber-800 text-sm">
+            <input type="checkbox" checked={autoStep} onChange={e => setAutoStep(e.target.checked)} className="w-4 h-4" />
+            🔄 Авто-шаг
+          </label>
+          <button onClick={handleReset} className="bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded shadow text-sm ml-auto">🔄 Сброс</button>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <TopologyHeatmap topology={currentTopology} labels={defaultV} />
+      </div>
+
+      <div className="mt-4">
+        <h4 className="font-semibold text-amber-900 mb-1">🎨 Редактор субагентов и паттернов</h4>
+        <EditableAgentGraph
+          patterns={customPatterns}
+          onPatternsChange={setCustomPatterns}
+          onAgentsChange={() => {}}
+        />
+      </div>
+
+      <div className="mt-4">
+        <h4 className="font-semibold text-amber-900 mb-1">🏔️ Ландшафт меры μ (3D) с геодезическим путём</h4>
+        <MeasureLandscape
+          measure={measure}
+          histories={Array.from(measure.weights.keys()).map(k => JSON.parse(k) as History)}
+          geodesicPath={geodesicPath}
+          showGradients={true}
+        />
+      </div>
+
+      <div className="mt-4">
+        <h4 className="font-semibold text-amber-900">Лучшая история (κ по LZ)</h4>
+        {bestHistory && (
+          <div className="bg-amber-100 p-2 rounded mt-1 font-mono text-sm">
+            {bestHistory.join(' → ')}
+            <div className="text-xs text-amber-600 mt-1">
+              κ = {kappaLZ(bestHistory).toFixed(3)}, F = {valueFunction(bestHistory).toFixed(3)}
+            </div>
+          </div>
+        )}
+        <h4 className="font-semibold text-amber-900 mt-3">Активные паттерны (Φ*)</h4>
+        {patterns.map(p => (
+          <div key={p.id} className="text-xs text-amber-700">
+            {p.agents.join(',')} → Φ = {integratedInformation(p).toFixed(3)}
+          </div>
+        ))}
+        {bestHistory && (
+          <AICommentator
+            prompt={`Текущая лучшая история: ${bestHistory.join(' → ')}. Кappa (LZ): ${kappaLZ(bestHistory).toFixed(3)}. Значение F: ${valueFunction(bestHistory).toFixed(3)}. Активные паттерны: ${patterns.map(p => p.agents.join(',')).join('; ')}. Объясни выбор в контексте теории «Амбиент».`}
+            autoGenerate={true}
+            className="mt-4"
+          />
+        )}
+      </div>
+    </div>
+  );
+};
