@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   History,
   Measure,
@@ -14,6 +14,7 @@ import {
   V
 } from '../../models/Simulation';
 import { AgentGraph } from './AgentGraph';
+import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
 
 export const SimulationDashboard: React.FC = () => {
   const demoHistories: History[] = [
@@ -28,11 +29,21 @@ export const SimulationDashboard: React.FC = () => {
   const [beta, setBeta] = useState(0.3);
   const [currentTopology, setCurrentTopology] = useState<number[]>(() => preferenceTopology(demoHistories[0]));
   const [functionalValue, setFunctionalValue] = useState(0);
+  const { playResonance } = useAtmosphereSound();
+  const prevFunctionalRef = useRef(functionalValue);
 
   useEffect(() => {
     const val = totalFunctional(measure, alpha, tau, beta, currentTopology);
     setFunctionalValue(val);
   }, [measure, alpha, tau, beta, currentTopology]);
+
+  useEffect(() => {
+    if (functionalValue > prevFunctionalRef.current && functionalValue - prevFunctionalRef.current > 0.01) {
+      const intensity = Math.min(1, (functionalValue - prevFunctionalRef.current) * 2);
+      playResonance(intensity);
+    }
+    prevFunctionalRef.current = functionalValue;
+  }, [functionalValue, playResonance]);
 
   const handleStep = () => {
     const newMeasure = gradientStep(measure, alpha, tau, beta, currentTopology, 0.2);

@@ -3,8 +3,11 @@ import { AtmosphereSwitcher } from './components/UI/AtmosphereSwitcher';
 import { PaperTexture } from './components/Atoms/PaperTexture';
 import { EditableFormula } from './components/Molecules/EditableFormula';
 import { SimulationDashboard } from './components/Organisms/SimulationDashboard';
+import { useAtmosphereSound } from './hooks/useAtmosphereSound';
 
 function App() {
+  useAtmosphereSound(); // фоновый гул + звуки смены атмосферы
+
   return (
     <AtmosphereProvider>
       <PaperTexture>
