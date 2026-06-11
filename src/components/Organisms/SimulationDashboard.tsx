@@ -23,7 +23,7 @@ import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
 import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
 import { MeasureLandscape } from './MeasureLandscape';
 import { AICommentator } from '../Atoms/AICommentator';
-import { WanderingArchetypes } from './WanderingArchetypes';
+import { CircusOnTheLandscape } from './CircusOnTheLandscape';
 import { useAtmosphere } from '../../hooks/useAtmosphere';
 
 type Atmosphere = 'classic' | 'horror' | 'meditative' | 'pop-science';
@@ -265,8 +265,13 @@ export const SimulationDashboard: React.FC = () => {
       </div>
 
       <div className="mt-4">
-        <h4 className="font-semibold text-amber-900 mb-1">🎪 Бродячие архетипы</h4>
-        <WanderingArchetypes patterns={patterns} />
+        <h4 className="font-semibold text-amber-900 mb-1">🎪 Цирк на ландшафте</h4>
+        <CircusOnTheLandscape
+          patterns={patterns}
+          functionalValue={functionalValue}
+          bestHistory={bestHistory}
+          onResonance={(intensity) => playResonance(intensity)}
+        />
       </div>
 
       <div className="mt-4">
