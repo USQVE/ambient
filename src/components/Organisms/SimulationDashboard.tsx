@@ -3,11 +3,10 @@ import {
   History,
   Measure,
   valueFunction,
-  kappa,
   integratedInformation,
   activePatterns,
   preferenceTopology,
-  totalFunctional,
+  computeFunctionalComponents,
   gradientStep,
   createInitialMeasure,
   randomHistory,
@@ -15,6 +14,7 @@ import {
   saveState,
   loadState,
   SavedState,
+  kappaLZ,
   V as defaultV
 } from '../../models/Simulation';
 import { EditableAgentGraph } from './EditableAgentGraph';
@@ -23,7 +23,6 @@ import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
 import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
 import { MeasureLandscape } from './MeasureLandscape';
 import { AICommentator } from '../Atoms/AICommentator';
-import { CircusOnTheLandscape } from './CircusOnTheLandscape';
 import { useAtmosphere } from '../../hooks/useAtmosphere';
 
 type Atmosphere = 'classic' | 'horror' | 'meditative' | 'pop-science';
@@ -37,8 +36,6 @@ export const SimulationDashboard: React.FC = () => {
   ];
 
   const { atmosphere, setAtmosphere } = useAtmosphere();
-
-  // Паттерны, создаваемые в редакторе графа
   const [customPatterns, setCustomPatterns] = useState<Pattern[]>([]);
 
   const [measure, setMeasure] = useState<Measure>(() => {
@@ -54,36 +51,45 @@ export const SimulationDashboard: React.FC = () => {
     return createInitialMeasure(demoHistories);
   });
 
-  const [alpha, setAlpha] = useState<number>(() => {
+  const [alpha, setAlpha] = useState(() => {
     const saved = localStorage.getItem('ambient_state');
     if (saved) try { return JSON.parse(saved).alpha; } catch { /* ignore */ }
     return 0.5;
   });
-  const [tau, setTau] = useState<number>(() => {
+  const [tau, setTau] = useState(() => {
     const saved = localStorage.getItem('ambient_state');
     if (saved) try { return JSON.parse(saved).tau; } catch { /* ignore */ }
     return 0.2;
   });
-  const [beta, setBeta] = useState<number>(() => {
+  const [beta, setBeta] = useState(() => {
     const saved = localStorage.getItem('ambient_state');
     if (saved) try { return JSON.parse(saved).beta; } catch { /* ignore */ }
     return 0.3;
   });
 
   const [currentTopology, setCurrentTopology] = useState<number[]>(() => preferenceTopology(demoHistories[0]));
-  const [functionalValue, setFunctionalValue] = useState(0);
+  const [functionalComponents, setFunctionalComponents] = useState({ expectationF:0, expectationPref:0, klDivergence:0, expectationGeo:0, total:0 });
   const [autoStep, setAutoStep] = useState(false);
   const [stepInterval, setStepInterval] = useState<ReturnType<typeof setInterval> | null>(null);
   const { playResonance } = useAtmosphereSound();
-  const prevFunctionalRef = useRef(functionalValue);
+  const prevTotalRef = useRef(0);
   const [geodesicPath, setGeodesicPath] = useState<Array<{x:number, z:number, y:number, label:string}>>([]);
 
-  // Обновление паттернов из графа
-  const handlePatternsChange = (newPatterns: Pattern[]) => {
-    setCustomPatterns(newPatterns);
-  };
+  // Обновление компонент функционала
+  useEffect(() => {
+    const comps = computeFunctionalComponents(measure, alpha, tau, beta, currentTopology);
+    setFunctionalComponents(comps);
+  }, [measure, alpha, tau, beta, currentTopology]);
 
-  // Получение текущей лучшей истории
+  // Резонанс при росте total
+  useEffect(() => {
+    if (functionalComponents.total > prevTotalRef.current && functionalComponents.total - prevTotalRef.current > 0.01) {
+      const intensity = Math.min(1, (functionalComponents.total - prevTotalRef.current) * 2);
+      playResonance(intensity);
+    }
+    prevTotalRef.current = functionalComponents.total;
+  }, [functionalComponents.total, playResonance]);
+
   const getBestHistoryCoords = () => {
     let bestHistory: History | null = null;
     let bestWeight = -1;
@@ -94,7 +100,7 @@ export const SimulationDashboard: React.FC = () => {
       }
     }
     if (!bestHistory) return null;
-    const k = kappa(bestHistory);
+    const k = kappaLZ(bestHistory);
     const patternsForHistory = activePatterns(bestHistory);
     const avgPhi = patternsForHistory.length > 0 ? patternsForHistory.reduce((sum, p) => sum + integratedInformation(p), 0) / patternsForHistory.length : 0;
     const totalWeight = Array.from(measure.weights.values()).reduce((a,b)=>a+b,0);
@@ -130,12 +136,6 @@ export const SimulationDashboard: React.FC = () => {
       setTimeout(() => addCurrentToGeodesic(), 0);
       return newMeasure;
     });
-    // Звуки архетипов: тигр рычит при высоком Φ*, клоун гудит при низком
-    if (patterns.some(p => integratedInformation(p) > 0.6 && Math.random() < 0.2)) {
-      playResonance(0.8);
-    } else if (patterns.some(p => integratedInformation(p) < 0.4 && Math.random() < 0.3)) {
-      playResonance(0.3);
-    }
   };
 
   useEffect(() => {
@@ -156,9 +156,7 @@ export const SimulationDashboard: React.FC = () => {
 
   useEffect(() => {
     if (autoStep) {
-      const interval = setInterval(() => {
-        performStep();
-      }, 500);
+      const interval = setInterval(() => { performStep(); }, 500);
       setStepInterval(interval);
       return () => clearInterval(interval);
     } else {
@@ -178,19 +176,6 @@ export const SimulationDashboard: React.FC = () => {
     localStorage.setItem('ambient_state', JSON.stringify(state));
   }, [measure, alpha, tau, beta, atmosphere]);
 
-  useEffect(() => {
-    const val = totalFunctional(measure, alpha, tau, beta, currentTopology);
-    setFunctionalValue(val);
-  }, [measure, alpha, tau, beta, currentTopology]);
-
-  useEffect(() => {
-    if (functionalValue > prevFunctionalRef.current && functionalValue - prevFunctionalRef.current > 0.01) {
-      const intensity = Math.min(1, (functionalValue - prevFunctionalRef.current) * 2);
-      playResonance(intensity);
-    }
-    prevFunctionalRef.current = functionalValue;
-  }, [functionalValue, playResonance]);
-
   let bestHistory: History | null = null;
   let bestWeight = -1;
   for (const [histJson, w] of measure.weights.entries()) {
@@ -204,6 +189,16 @@ export const SimulationDashboard: React.FC = () => {
   return (
     <div className="bg-amber-50/80 rounded-lg p-4 border border-amber-400 shadow-inner font-serif">
       <h3 className="text-xl font-bold text-amber-900 border-b border-amber-600 mb-3">⚙️ Вариационный движок «Амбиент»</h3>
+
+      {/* Панель компонент функционала */}
+      <div className="grid grid-cols-4 gap-2 text-xs bg-amber-100/60 p-2 rounded mb-3">
+        <div><span className="font-bold">E[F]:</span> {functionalComponents.expectationF.toFixed(3)}</div>
+        <div><span className="font-bold">αE[p̄]:</span> {(alpha * functionalComponents.expectationPref).toFixed(3)}</div>
+        <div><span className="font-bold">-τKL:</span> {(-tau * functionalComponents.klDivergence).toFixed(3)}</div>
+        <div><span className="font-bold">βE[dJS]:</span> {(beta * functionalComponents.expectationGeo).toFixed(3)}</div>
+        <div className="col-span-4"><span className="font-bold">∑ = {functionalComponents.total.toFixed(4)}</span></div>
+      </div>
+
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
           <label className="block text-amber-800">α (предпочтения)</label>
@@ -221,23 +216,13 @@ export const SimulationDashboard: React.FC = () => {
           <span className="text-amber-900">{beta.toFixed(2)}</span>
         </div>
         <div className="col-span-2 flex flex-wrap gap-2">
-          <button onClick={performStep} className="bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded shadow text-sm">
-            ▶️ Шаг
-          </button>
-          <button onClick={handleAddRandomHistory} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded shadow text-sm">
-            🎲 Случайная история
-          </button>
+          <button onClick={performStep} className="bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded shadow text-sm">▶️ Шаг</button>
+          <button onClick={handleAddRandomHistory} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded shadow text-sm">🎲 Случайная история</button>
           <label className="flex items-center gap-2 text-amber-800 text-sm">
             <input type="checkbox" checked={autoStep} onChange={e => setAutoStep(e.target.checked)} className="w-4 h-4" />
             🔄 Авто-шаг
           </label>
-          <button onClick={handleReset} className="bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded shadow text-sm ml-auto">
-            🔄 Сброс
-          </button>
-        </div>
-        <div className="col-span-2">
-          <p className="text-xs text-amber-700">Текущий функционал: <strong>{functionalValue.toFixed(4)}</strong></p>
-          <p className="text-xs text-amber-500">📈 Геодезический путь: {geodesicPath.length} точек</p>
+          <button onClick={handleReset} className="bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded shadow text-sm ml-auto">🔄 Сброс</button>
         </div>
       </div>
 
@@ -246,41 +231,31 @@ export const SimulationDashboard: React.FC = () => {
       </div>
 
       <div className="mt-4">
-        <h4 className="font-semibold text-amber-900 mb-1">🎨 Редактор субагентов и паттернов (перетаскивай, соединяй, создавай)</h4>
+        <h4 className="font-semibold text-amber-900 mb-1">🎨 Редактор субагентов и паттернов</h4>
         <EditableAgentGraph
           patterns={customPatterns}
-          onPatternsChange={handlePatternsChange}
-          onAgentsChange={(newAgents) => console.log('Agents updated', newAgents)}
+          onPatternsChange={setCustomPatterns}
+          onAgentsChange={() => {}}
         />
-        <p className="text-xs text-amber-600 mt-1">✨ Соединяй узлы — создаются паттерны с Φ*. Перетаскивай узлы. Кнопка «Новый субагент» добавляет вершины.</p>
       </div>
 
       <div className="mt-4">
-        <h4 className="font-semibold text-amber-900 mb-1">🏔️ Ландшафт меры μ (3D)</h4>
+        <h4 className="font-semibold text-amber-900 mb-1">🏔️ Ландшафт меры μ (3D) с геодезическим путём</h4>
         <MeasureLandscape
           measure={measure}
           histories={Array.from(measure.weights.keys()).map(k => JSON.parse(k) as History)}
           geodesicPath={geodesicPath}
+          showGradients={true}
         />
       </div>
 
       <div className="mt-4">
-        <h4 className="font-semibold text-amber-900 mb-1">🎪 Цирк на ландшафте</h4>
-        <CircusOnTheLandscape
-          patterns={patterns}
-          functionalValue={functionalValue}
-          bestHistory={bestHistory}
-          onResonance={(intensity) => playResonance(intensity)}
-        />
-      </div>
-
-      <div className="mt-4">
-        <h4 className="font-semibold text-amber-900">Лучшая история</h4>
+        <h4 className="font-semibold text-amber-900">Лучшая история (κ по LZ)</h4>
         {bestHistory && (
           <div className="bg-amber-100 p-2 rounded mt-1 font-mono text-sm">
             {bestHistory.join(' → ')}
             <div className="text-xs text-amber-600 mt-1">
-              κ = {kappa(bestHistory).toFixed(3)}, F = {valueFunction(bestHistory).toFixed(3)}
+              κ = {kappaLZ(bestHistory).toFixed(3)}, F = {valueFunction(bestHistory).toFixed(3)}
             </div>
           </div>
         )}
@@ -292,7 +267,7 @@ export const SimulationDashboard: React.FC = () => {
         ))}
         {bestHistory && (
           <AICommentator
-            prompt={`Текущая лучшая история: ${bestHistory.join(' → ')}. Кappa (сложность): ${kappa(bestHistory).toFixed(3)}. Значение F: ${valueFunction(bestHistory).toFixed(3)}. Активные паттерны: ${patterns.map(p => p.agents.join(',')).join('; ')}. Каков философский смысл этого выбора в контексте теории «Амбиент»?`}
+            prompt={`Текущая лучшая история: ${bestHistory.join(' → ')}. Кappa (LZ): ${kappaLZ(bestHistory).toFixed(3)}. Значение F: ${valueFunction(bestHistory).toFixed(3)}. Активные паттерны: ${patterns.map(p => p.agents.join(',')).join('; ')}. Объясни выбор в контексте теории «Амбиент».`}
             autoGenerate={true}
             className="mt-4"
           />

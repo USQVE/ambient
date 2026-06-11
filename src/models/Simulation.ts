@@ -1,4 +1,5 @@
 import pako from 'pako';
+import LZString from 'lz-string';
 
 // ------------------------------
 // 1. Базовые типы
@@ -231,4 +232,63 @@ export function loadState(saved: SavedState): { measure: Measure; alpha: number;
     beta: saved.beta,
     atmosphere: saved.atmosphere,
   };
+}
+
+// Новая функция сложности: используем LZ-сжатие
+export function kolmogorovComplexityLZ(history: History): number {
+  const json = JSON.stringify(history);
+  const compressed = LZString.compressToUTF16(json);
+  return compressed.length; // число символов после сжатия
+}
+
+export const S_MAX_LZ = 150; // максимальная энтропия для нормировки (подобрано для LZ)
+
+export function kappaLZ(history: History): number {
+  const k = kolmogorovComplexityLZ(history);
+  return Math.min(1, k / S_MAX_LZ);
+}
+
+// Расширенная целевая функция с компонентами
+export interface FunctionalComponents {
+  expectationF: number;
+  expectationPref: number;
+  klDivergence: number;
+  expectationGeo: number;
+  total: number;
+}
+
+export function computeFunctionalComponents(
+  measure: Measure,
+  alpha: number,
+  tau: number,
+  beta: number,
+  currentTopology: number[]
+): FunctionalComponents {
+  let totalWeight = 0;
+  let sumF = 0, sumPref = 0, sumGeo = 0;
+  for (const [histJson, weight] of measure.weights.entries()) {
+    const history = JSON.parse(histJson) as History;
+    const f = valueFunction(history);
+    const prefTop = preferenceTopology(history);
+    const geo = jsDivergence(currentTopology, prefTop);
+    sumF += weight * f;
+    sumPref += weight * (prefTop.reduce((a,b)=>a+b,0) / prefTop.length);
+    sumGeo += weight * geo;
+    totalWeight += weight;
+  }
+  if (totalWeight === 0) return { expectationF:0, expectationPref:0, klDivergence:0, expectationGeo:0, total:0 };
+  const expectationF = sumF / totalWeight;
+  const expectationPref = sumPref / totalWeight;
+  const expectationGeo = sumGeo / totalWeight;
+  // KL-дивергенция меры относительно равномерной
+  let kl = 0;
+  const totalW = totalWeight;
+  const n = measure.weights.size;
+  for (const w of measure.weights.values()) {
+    const p = w / totalW;
+    const q = 1 / n;
+    if (p > 0) kl += p * Math.log(p / q);
+  }
+  const total = expectationF + alpha * expectationPref - tau * kl + beta * expectationGeo;
+  return { expectationF, expectationPref, klDivergence: kl, expectationGeo, total };
 }

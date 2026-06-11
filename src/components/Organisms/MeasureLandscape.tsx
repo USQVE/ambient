@@ -15,6 +15,7 @@ interface MeasureLandscapeProps {
   measure: Measure;
   histories: History[];
   geodesicPath?: Array<{x:number, z:number, y:number, label:string}>;
+  showGradients?: boolean;
 }
 
 const LandscapeMesh: React.FC<{ points: Point[]; geodesicPoints?: Array<{x:number, z:number, y:number}> }> = ({ points, geodesicPoints }) => {
