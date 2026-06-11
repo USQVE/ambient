@@ -15,15 +15,15 @@ import {
   saveState,
   loadState,
   SavedState,
-  V
+  V as defaultV
 } from '../../models/Simulation';
-import { AgentGraph } from './AgentGraph';
+import { EditableAgentGraph } from './EditableAgentGraph';
 import { Pattern } from '../../models/Simulation';
 import { useAtmosphereSound } from '../../hooks/useAtmosphereSound';
 import { TopologyHeatmap } from '../Atoms/TopologyHeatmap';
 import { MeasureLandscape } from './MeasureLandscape';
-import { useAtmosphere } from '../../hooks/useAtmosphere';
 import { AICommentator } from '../Atoms/AICommentator';
+import { useAtmosphere } from '../../hooks/useAtmosphere';
 
 type Atmosphere = 'classic' | 'horror' | 'meditative' | 'pop-science';
 
@@ -36,6 +36,9 @@ export const SimulationDashboard: React.FC = () => {
   ];
 
   const { atmosphere, setAtmosphere } = useAtmosphere();
+
+  // Паттерны, создаваемые в редакторе графа
+  const [customPatterns, setCustomPatterns] = useState<Pattern[]>([]);
 
   const [measure, setMeasure] = useState<Measure>(() => {
     const saved = localStorage.getItem('ambient_state');
@@ -72,11 +75,14 @@ export const SimulationDashboard: React.FC = () => {
   const [stepInterval, setStepInterval] = useState<ReturnType<typeof setInterval> | null>(null);
   const { playResonance } = useAtmosphereSound();
   const prevFunctionalRef = useRef(functionalValue);
-
-  // Траектория геодезического пути: массив точек {x, z, y, label}
   const [geodesicPath, setGeodesicPath] = useState<Array<{x:number, z:number, y:number, label:string}>>([]);
 
-  // Функция получения текущей лучшей истории и её координат
+  // Обновление паттернов из графа
+  const handlePatternsChange = (newPatterns: Pattern[]) => {
+    setCustomPatterns(newPatterns);
+  };
+
+  // Получение текущей лучшей истории
   const getBestHistoryCoords = () => {
     let bestHistory: History | null = null;
     let bestWeight = -1;
@@ -88,48 +94,43 @@ export const SimulationDashboard: React.FC = () => {
     }
     if (!bestHistory) return null;
     const k = kappa(bestHistory);
-    const patterns = activePatterns(bestHistory);
-    const avgPhi = patterns.length > 0 ? patterns.reduce((sum, p) => sum + integratedInformation(p), 0) / patterns.length : 0;
+    const patternsForHistory = activePatterns(bestHistory);
+    const avgPhi = patternsForHistory.length > 0 ? patternsForHistory.reduce((sum, p) => sum + integratedInformation(p), 0) / patternsForHistory.length : 0;
     const totalWeight = Array.from(measure.weights.values()).reduce((a,b)=>a+b,0);
     const normWeight = totalWeight > 0 ? bestWeight / totalWeight : 0;
     return { x: k - 0.5, z: avgPhi - 0.5, y: Math.pow(normWeight, 0.5) * 1.5, label: bestHistory.join('→') };
   };
 
-  // Добавляем текущую позицию в траекторию при каждом шаге
   const addCurrentToGeodesic = () => {
     const coords = getBestHistoryCoords();
     if (coords) {
       setGeodesicPath(prev => {
-        // Не добавляем дубликаты подряд
         if (prev.length > 0 && prev[prev.length-1].x === coords.x && prev[prev.length-1].z === coords.z) return prev;
         return [...prev, coords];
       });
     }
   };
 
-  // Шаг градиента с записью траектории
   const performStep = () => {
     setMeasure(prevMeasure => {
       const newMeasure = gradientStep(prevMeasure, alpha, tau, beta, currentTopology, 0.2);
       let totalWeight = 0;
-      const sumTop = new Array(V.length).fill(0);
+      const sumTop = new Array(defaultV.length).fill(0);
       for (const [histJson, w] of newMeasure.weights.entries()) {
         const hist = JSON.parse(histJson) as History;
         const top = preferenceTopology(hist);
-        for (let i=0; i<V.length; i++) sumTop[i] += w * top[i];
+        for (let i=0; i<defaultV.length; i++) sumTop[i] += w * top[i];
         totalWeight += w;
       }
       if (totalWeight > 0) {
         const newTop = sumTop.map(s => s / totalWeight);
         setCurrentTopology(newTop);
       }
-      // После обновления меры добавим траекторию (useEffect не сработает синхронно)
       setTimeout(() => addCurrentToGeodesic(), 0);
       return newMeasure;
     });
   };
 
-  // При первом рендере и при изменении меры (например, сброс) обновляем траекторию
   useEffect(() => {
     addCurrentToGeodesic();
   }, [measure]);
@@ -142,11 +143,10 @@ export const SimulationDashboard: React.FC = () => {
       setBeta(0.3);
       setAtmosphere('classic');
       setCurrentTopology(preferenceTopology(demoHistories[0]));
-      setGeodesicPath([]); // очищаем траекторию
+      setGeodesicPath([]);
     }
   };
 
-  // Авто-шаг
   useEffect(() => {
     if (autoStep) {
       const interval = setInterval(() => {
@@ -166,13 +166,11 @@ export const SimulationDashboard: React.FC = () => {
     playResonance(0.2);
   };
 
-  // Сохранение состояния
   useEffect(() => {
     const state = saveState(measure, alpha, tau, beta, atmosphere);
     localStorage.setItem('ambient_state', JSON.stringify(state));
   }, [measure, alpha, tau, beta, atmosphere]);
 
-  // Подсчёт функционала
   useEffect(() => {
     const val = totalFunctional(measure, alpha, tau, beta, currentTopology);
     setFunctionalValue(val);
@@ -186,7 +184,6 @@ export const SimulationDashboard: React.FC = () => {
     prevFunctionalRef.current = functionalValue;
   }, [functionalValue, playResonance]);
 
-  // Данные для отображения
   let bestHistory: History | null = null;
   let bestWeight = -1;
   for (const [histJson, w] of measure.weights.entries()) {
@@ -196,10 +193,6 @@ export const SimulationDashboard: React.FC = () => {
     }
   }
   const patterns = bestHistory ? activePatterns(bestHistory) : [];
-
-  const handlePatternClick = (pattern: Pattern) => {
-    alert(`Паттерн ${pattern.agents.join(',')}\nΦ* = ${integratedInformation(pattern).toFixed(3)}`);
-  };
 
   return (
     <div className="bg-amber-50/80 rounded-lg p-4 border border-amber-400 shadow-inner font-serif">
@@ -242,41 +235,36 @@ export const SimulationDashboard: React.FC = () => {
       </div>
 
       <div className="mt-4">
-        <TopologyHeatmap topology={currentTopology} labels={V} />
+        <TopologyHeatmap topology={currentTopology} labels={defaultV} />
       </div>
 
       <div className="mt-4">
-        <h4 className="font-semibold text-amber-900 mb-1">🌐 Граф субагентов и паттернов</h4>
-        <AgentGraph patterns={patterns} onPatternClick={handlePatternClick} />
+        <h4 className="font-semibold text-amber-900 mb-1">🎨 Редактор субагентов и паттернов (перетаскивай, соединяй, создавай)</h4>
+        <EditableAgentGraph
+          patterns={customPatterns}
+          onPatternsChange={handlePatternsChange}
+          onAgentsChange={(newAgents) => console.log('Agents updated', newAgents)}
+        />
+        <p className="text-xs text-amber-600 mt-1">✨ Соединяй узлы — создаются паттерны с Φ*. Перетаскивай узлы. Кнопка «Новый субагент» добавляет вершины.</p>
       </div>
 
       <div className="mt-4">
-        <h4 className="font-semibold text-amber-900 mb-1">🏔️ Ландшафт меры μ (3D) с геодезическим путём</h4>
+        <h4 className="font-semibold text-amber-900 mb-1">🏔️ Ландшафт меры μ (3D)</h4>
         <MeasureLandscape
           measure={measure}
           histories={Array.from(measure.weights.keys()).map(k => JSON.parse(k) as History)}
           geodesicPath={geodesicPath}
         />
-        <p className="text-xs text-amber-600 mt-1">Ось X: κ(H), ось Z: ⟨Φ⟩, высота: вес истории. Линия — эволюция лучшей истории.</p>
       </div>
 
       <div className="mt-4">
-        <h4 className="font-semibold text-amber-900">Лучшая история (max вес)</h4>
+        <h4 className="font-semibold text-amber-900">Лучшая история</h4>
         {bestHistory && (
           <div className="bg-amber-100 p-2 rounded mt-1 font-mono text-sm">
             {bestHistory.join(' → ')}
             <div className="text-xs text-amber-600 mt-1">
               κ = {kappa(bestHistory).toFixed(3)}, F = {valueFunction(bestHistory).toFixed(3)}
             </div>
-            <AICommentator
-              prompt={`Текущая лучшая история: ${bestHistory.join(' → ')}. 
-                Кappa (сложность): ${kappa(bestHistory).toFixed(3)}. 
-                Значение F: ${valueFunction(bestHistory).toFixed(3)}.
-                Активные паттерны: ${patterns.map(p => p.agents.join(',')).join('; ')}. 
-                Каков философский смысл этого выбора в контексте теории «Амбиент»?`}
-              autoGenerate={true}
-              className="mt-4"
-            />
           </div>
         )}
         <h4 className="font-semibold text-amber-900 mt-3">Активные паттерны (Φ*)</h4>
@@ -285,6 +273,13 @@ export const SimulationDashboard: React.FC = () => {
             {p.agents.join(',')} → Φ = {integratedInformation(p).toFixed(3)}
           </div>
         ))}
+        {bestHistory && (
+          <AICommentator
+            prompt={`Текущая лучшая история: ${bestHistory.join(' → ')}. Кappa (сложность): ${kappa(bestHistory).toFixed(3)}. Значение F: ${valueFunction(bestHistory).toFixed(3)}. Активные паттерны: ${patterns.map(p => p.agents.join(',')).join('; ')}. Каков философский смысл этого выбора в контексте теории «Амбиент»?`}
+            autoGenerate={true}
+            className="mt-4"
+          />
+        )}
       </div>
     </div>
   );
